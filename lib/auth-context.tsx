@@ -8,96 +8,129 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { createClient } from "@/lib/supabase/client";
 
-export interface User {
+export interface Profile {
   id: string;
   name: string;
   email: string;
 }
 
 interface AuthContextValue {
-  users: User[];
-  currentUser: User | null;
+  currentUser: Profile | null;
   isLoading: boolean;
-  login: (userId: string) => void;
-  logout: () => void;
-  register: (name: string, email: string) => User;
-}
-
-const STORAGE_USERS_KEY = "todo-users";
-const STORAGE_CURRENT_USER_KEY = "todo-current-user";
-
-const DEFAULT_USERS: User[] = [
-  { id: "user-1", name: "田中太郎", email: "tanaka@example.com" },
-  { id: "user-2", name: "佐藤花子", email: "sato@example.com" },
-  { id: "user-3", name: "山田次郎", email: "yamada@example.com" },
-];
-
-function loadUsers(): User[] {
-  if (typeof window === "undefined") return DEFAULT_USERS;
-  const stored = localStorage.getItem(STORAGE_USERS_KEY);
-  if (stored) {
-    return JSON.parse(stored) as User[];
-  }
-  localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(DEFAULT_USERS));
-  return DEFAULT_USERS;
-}
-
-function loadCurrentUser(users: User[]): User | null {
-  if (typeof window === "undefined") return null;
-  const userId = localStorage.getItem(STORAGE_CURRENT_USER_KEY);
-  if (!userId) return null;
-  return users.find((u) => u.id === userId) ?? null;
+  login: (email: string, password: string) => Promise<string | null>;
+  logout: () => Promise<void>;
+  register: (
+    name: string,
+    email: string,
+    password: string,
+  ) => Promise<string | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+async function fetchOrCreateProfile(userId: string): Promise<Profile | null> {
+  const supabase = createClient();
+
+  // maybeSingle: 0件でも406にならずnullを返す
+  const { data } = await supabase
+    .from("profiles")
+    .select("id, name, email")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (data) return data;
+
+  // プロフィール未作成の場合、Authユーザー情報から自動作成
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const name = user.user_metadata?.name ?? "";
+  const email = user.email ?? "";
+
+  const { data: created } = await supabase
+    .from("profiles")
+    .upsert({ id: userId, name, email })
+    .select("id, name, email")
+    .single();
+
+  return created;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [users, setUsers] = useState<User[]>([]);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedUsers = loadUsers();
-    setUsers(storedUsers);
-    setCurrentUser(loadCurrentUser(storedUsers));
-    setIsLoading(false);
+    const supabase = createClient();
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        fetchOrCreateProfile(user.id).then((profile) => {
+          setCurrentUser(profile);
+          setIsLoading(false);
+        });
+      } else {
+        setIsLoading(false);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        fetchOrCreateProfile(session.user.id).then(setCurrentUser);
+      } else {
+        setCurrentUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const login = useCallback(
-    (userId: string) => {
-      const user = users.find((u) => u.id === userId);
-      if (!user) return;
-      setCurrentUser(user);
-      localStorage.setItem(STORAGE_CURRENT_USER_KEY, userId);
+    async (email: string, password: string): Promise<string | null> => {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) return error.message;
+      return null;
     },
-    [users],
+    [],
   );
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
     setCurrentUser(null);
-    localStorage.removeItem(STORAGE_CURRENT_USER_KEY);
   }, []);
 
-  const register = useCallback((name: string, email: string): User => {
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      name,
-      email,
-    };
-    setUsers((prev) => {
-      const updated = [...prev, newUser];
-      localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(updated));
-      return updated;
-    });
-    setCurrentUser(newUser);
-    localStorage.setItem(STORAGE_CURRENT_USER_KEY, newUser.id);
-    return newUser;
-  }, []);
+  const register = useCallback(
+    async (
+      name: string,
+      email: string,
+      password: string,
+    ): Promise<string | null> => {
+      const supabase = createClient();
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { name } },
+      });
+      if (error) return error.message;
+      return null;
+    },
+    [],
+  );
 
   return (
     <AuthContext.Provider
-      value={{ users, currentUser, isLoading, login, logout, register }}
+      value={{ currentUser, isLoading, login, logout, register }}
     >
       {children}
     </AuthContext.Provider>

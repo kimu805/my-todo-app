@@ -8,20 +8,33 @@ import { useAuth } from "@/lib/auth-context";
 import { LogIn, UserPlus } from "lucide-react";
 
 export function LoginScreen() {
-  const { users, login, register } = useAuth();
+  const { login, register } = useAuth();
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [selectedUserId, setSelectedUserId] = useState(users[0]?.id ?? "");
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleLogin = () => {
-    if (!selectedUserId) return;
-    login(selectedUserId);
+  const handleLogin = async () => {
+    setError("");
+    setSubmitting(true);
+    const err = await login(email, password);
+    if (err) setError(err);
+    setSubmitting(false);
   };
 
-  const handleRegister = () => {
-    if (!name.trim() || !email.trim()) return;
-    register(name.trim(), email.trim());
+  const handleRegister = async () => {
+    setError("");
+    setSubmitting(true);
+    const err = await register(name.trim(), email, password);
+    if (err) setError(err);
+    setSubmitting(false);
+  };
+
+  const switchMode = (next: "login" | "register") => {
+    setMode(next);
+    setError("");
   };
 
   if (mode === "register") {
@@ -54,14 +67,28 @@ export function LoginScreen() {
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="register-password">パスワード</Label>
+              <Input
+                id="register-password"
+                type="password"
+                placeholder="6文字以上"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
           </div>
+
+          {error && (
+            <p className="text-sm text-destructive text-center">{error}</p>
+          )}
 
           <Button
             onClick={handleRegister}
-            disabled={!name.trim() || !email.trim()}
+            disabled={!name.trim() || !email.trim() || !password || submitting}
             className="w-full"
           >
-            新規登録
+            {submitting ? "登録中..." : "新規登録"}
           </Button>
 
           <p className="text-center text-sm text-muted-foreground">
@@ -69,7 +96,7 @@ export function LoginScreen() {
             <button
               type="button"
               className="text-primary underline underline-offset-2 hover:text-primary/80"
-              onClick={() => setMode("login")}
+              onClick={() => switchMode("login")}
             >
               ログイン
             </button>
@@ -87,28 +114,39 @@ export function LoginScreen() {
           <h2 className="text-lg font-semibold">ログイン</h2>
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="user-select">ユーザーを選択</Label>
-          <select
-            id="user-select"
-            value={selectedUserId}
-            onChange={(e) => setSelectedUserId(e.target.value)}
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}（{user.email}）
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="login-email">メールアドレス</Label>
+            <Input
+              id="login-email"
+              type="email"
+              placeholder="example@email.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="login-password">パスワード</Label>
+            <Input
+              id="login-password"
+              type="password"
+              placeholder="パスワードを入力"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
         </div>
+
+        {error && (
+          <p className="text-sm text-destructive text-center">{error}</p>
+        )}
 
         <Button
           onClick={handleLogin}
-          disabled={!selectedUserId}
+          disabled={!email.trim() || !password || submitting}
           className="w-full"
         >
-          ログイン
+          {submitting ? "ログイン中..." : "ログイン"}
         </Button>
 
         <p className="text-center text-sm text-muted-foreground">
@@ -116,7 +154,7 @@ export function LoginScreen() {
           <button
             type="button"
             className="text-primary underline underline-offset-2 hover:text-primary/80"
-            onClick={() => setMode("register")}
+            onClick={() => switchMode("register")}
           >
             新規登録
           </button>

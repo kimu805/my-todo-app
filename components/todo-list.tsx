@@ -1,59 +1,158 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, GripVertical } from "lucide-react";
+import { X, GripVertical, MessageSquare } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
+import { createClient } from "@/lib/supabase/client";
+
+interface Comment {
+  id: number;
+  text: string;
+  author: { name: string };
+}
 
 interface Task {
   id: number;
   text: string;
   completed: boolean;
+  comments: Comment[];
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normalizeTasks(data: any[]): Task[] {
+  return data.map((t) => ({
+    id: t.id,
+    text: t.text,
+    completed: t.completed,
+    comments: (t.comments ?? []).map((c: any) => ({
+      id: c.id,
+      text: c.text,
+      author: Array.isArray(c.author) ? c.author[0] : c.author,
+    })),
+  }));
 }
 
 function TaskCard({
   task,
   onToggle,
   onDelete,
+  onAddComment,
   onDragStart,
 }: {
   task: Task;
   onToggle: () => void;
   onDelete: () => void;
+  onAddComment: (text: string) => void;
   onDragStart: (e: React.DragEvent) => void;
 }) {
+  const [commentInput, setCommentInput] = useState("");
+  const [showComments, setShowComments] = useState(false);
+
+  const handleAddComment = () => {
+    const trimmed = commentInput.trim();
+    if (!trimmed) return;
+    onAddComment(trimmed);
+    setCommentInput("");
+  };
+
+  const handleCommentDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   return (
-    <div
-      draggable
-      onDragStart={onDragStart}
-      className="group flex items-center gap-2 rounded-lg border border-border bg-card p-3 shadow-sm transition-shadow hover:shadow-md cursor-grab active:cursor-grabbing"
-    >
-      <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/50" />
-      <span
-        className={`flex-1 text-sm leading-relaxed ${
-          task.completed ? "line-through text-muted-foreground" : ""
-        }`}
+    <div className="rounded-lg border border-border bg-card shadow-sm transition-shadow hover:shadow-md">
+      <div
+        draggable
+        onDragStart={onDragStart}
+        className="flex items-center gap-2 p-3 cursor-grab active:cursor-grabbing"
       >
-        {task.text}
-      </span>
-      <div className="flex items-center gap-1 shrink-0">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-          onClick={onToggle}
+        <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/50" />
+        <span
+          className={`flex-1 text-sm leading-relaxed ${
+            task.completed ? "line-through text-muted-foreground" : ""
+          }`}
         >
-          {task.completed ? "戻す" : "完了"}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 text-muted-foreground hover:text-destructive"
-          onClick={onDelete}
-        >
-          <X className="h-4 w-4" />
-        </Button>
+          {task.text}
+        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setShowComments((v) => !v)}
+          >
+            <MessageSquare className="h-3.5 w-3.5 mr-1" />
+            {task.comments.length}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={onToggle}
+          >
+            {task.completed ? "戻す" : "完了"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+            onClick={onDelete}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
+
+      {showComments && (
+        <div
+          draggable
+          onDragStart={handleCommentDrag}
+          className="border-t border-border px-3 pb-3 pt-2"
+        >
+          <div className="flex flex-col gap-1.5 mb-2">
+            {task.comments.length === 0 ? (
+              <p className="text-xs text-muted-foreground/60 py-2 text-center">
+                コメントはありません
+              </p>
+            ) : (
+              task.comments.map((c) => (
+                <div
+                  key={c.id}
+                  className="rounded-md bg-muted/60 px-2.5 py-1.5 text-xs"
+                >
+                  <span className="font-medium">{c.author.name}</span>
+                  <span className="text-muted-foreground ml-1.5">
+                    {c.text}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="flex gap-1.5">
+            <Input
+              type="text"
+              placeholder="コメントを入力..."
+              value={commentInput}
+              onChange={(e) => setCommentInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAddComment();
+              }}
+              className="h-7 text-xs"
+            />
+            <Button
+              size="sm"
+              className="h-7 px-2 text-xs shrink-0"
+              onClick={handleAddComment}
+              disabled={!commentInput.trim()}
+            >
+              追加
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -65,6 +164,7 @@ function Column({
   tasks,
   onToggle,
   onDelete,
+  onAddComment,
   onDragStart,
   onDrop,
 }: {
@@ -74,6 +174,7 @@ function Column({
   tasks: Task[];
   onToggle: (id: number) => void;
   onDelete: (id: number) => void;
+  onAddComment: (taskId: number, text: string) => void;
   onDragStart: (e: React.DragEvent, id: number) => void;
   onDrop: (e: React.DragEvent) => void;
 }) {
@@ -122,6 +223,7 @@ function Column({
               task={task}
               onToggle={() => onToggle(task.id)}
               onDelete={() => onDelete(task.id)}
+              onAddComment={(text) => onAddComment(task.id, text)}
               onDragStart={(e) => onDragStart(e, task.id)}
             />
           ))
@@ -132,55 +234,56 @@ function Column({
 }
 
 export function TodoList({ userId }: { userId: string }) {
+  const { currentUser } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [inputValue, setInputValue] = useState("");
-  const nextIdRef = useRef(0);
-  const storageKey = `todo-tasks-${userId}`;
+
+  const supabase = createClient();
+
+  const fetchTasks = useCallback(async () => {
+    const { data } = await supabase
+      .from("tasks")
+      .select("id, text, completed, comments(id, text, author:profiles!author_id(name))")
+      .eq("user_id", userId)
+      .order("created_at");
+    if (data) {
+      setTasks(normalizeTasks(data));
+    }
+  }, [userId]);
 
   useEffect(() => {
-    const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      const parsed = JSON.parse(stored) as Task[];
-      setTasks(parsed);
-      const maxId = parsed.reduce((max, t) => Math.max(max, t.id), -1);
-      nextIdRef.current = maxId + 1;
-    } else {
-      setTasks([]);
-      nextIdRef.current = 0;
-    }
-  }, [storageKey]);
+    fetchTasks();
+  }, [fetchTasks]);
 
-  const persistTasks = useCallback(
-    (updater: (prev: Task[]) => Task[]) => {
-      setTasks((prev) => {
-        const next = updater(prev);
-        localStorage.setItem(storageKey, JSON.stringify(next));
-        return next;
-      });
-    },
-    [storageKey],
-  );
-
-  const addTask = () => {
+  const addTask = async () => {
     const trimmed = inputValue.trim();
     if (!trimmed) return;
-    persistTasks((prev) => [
-      ...prev,
-      { id: nextIdRef.current++, text: trimmed, completed: false },
-    ]);
     setInputValue("");
+    await supabase.from("tasks").insert({ text: trimmed, user_id: userId });
+    fetchTasks();
   };
 
-  const toggleTask = (id: number) => {
-    persistTasks((prev) =>
-      prev.map((task) =>
-        task.id === id ? { ...task, completed: !task.completed } : task,
-      ),
-    );
+  const toggleTask = async (id: number) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    await supabase
+      .from("tasks")
+      .update({ completed: !task.completed })
+      .eq("id", id);
+    fetchTasks();
   };
 
-  const deleteTask = (id: number) => {
-    persistTasks((prev) => prev.filter((task) => task.id !== id));
+  const deleteTask = async (id: number) => {
+    await supabase.from("tasks").delete().eq("id", id);
+    fetchTasks();
+  };
+
+  const addComment = async (taskId: number, text: string) => {
+    if (!currentUser) return;
+    await supabase
+      .from("comments")
+      .insert({ task_id: taskId, author_id: currentUser.id, text });
+    fetchTasks();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -194,13 +297,13 @@ export function TodoList({ userId }: { userId: string }) {
     e.dataTransfer.effectAllowed = "move";
   };
 
-  const handleDropToColumn = (completed: boolean) => (e: React.DragEvent) => {
-    e.preventDefault();
-    const id = Number(e.dataTransfer.getData("text/plain"));
-    persistTasks((prev) =>
-      prev.map((task) => (task.id === id ? { ...task, completed } : task)),
-    );
-  };
+  const handleDropToColumn =
+    (completed: boolean) => async (e: React.DragEvent) => {
+      e.preventDefault();
+      const id = Number(e.dataTransfer.getData("text/plain"));
+      await supabase.from("tasks").update({ completed }).eq("id", id);
+      fetchTasks();
+    };
 
   const pending = tasks.filter((t) => !t.completed);
   const done = tasks.filter((t) => t.completed);
@@ -228,6 +331,7 @@ export function TodoList({ userId }: { userId: string }) {
           tasks={pending}
           onToggle={toggleTask}
           onDelete={deleteTask}
+          onAddComment={addComment}
           onDragStart={handleDragStart}
           onDrop={handleDropToColumn(false)}
         />
@@ -238,6 +342,7 @@ export function TodoList({ userId }: { userId: string }) {
           tasks={done}
           onToggle={toggleTask}
           onDelete={deleteTask}
+          onAddComment={addComment}
           onDragStart={handleDragStart}
           onDrop={handleDropToColumn(true)}
         />
