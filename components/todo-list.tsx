@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, GripVertical } from "lucide-react";
@@ -131,15 +131,40 @@ function Column({
   );
 }
 
-export function TodoList() {
+export function TodoList({ userId }: { userId: string }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [inputValue, setInputValue] = useState("");
   const nextIdRef = useRef(0);
+  const storageKey = `todo-tasks-${userId}`;
+
+  useEffect(() => {
+    const stored = localStorage.getItem(storageKey);
+    if (stored) {
+      const parsed = JSON.parse(stored) as Task[];
+      setTasks(parsed);
+      const maxId = parsed.reduce((max, t) => Math.max(max, t.id), -1);
+      nextIdRef.current = maxId + 1;
+    } else {
+      setTasks([]);
+      nextIdRef.current = 0;
+    }
+  }, [storageKey]);
+
+  const persistTasks = useCallback(
+    (updater: (prev: Task[]) => Task[]) => {
+      setTasks((prev) => {
+        const next = updater(prev);
+        localStorage.setItem(storageKey, JSON.stringify(next));
+        return next;
+      });
+    },
+    [storageKey],
+  );
 
   const addTask = () => {
     const trimmed = inputValue.trim();
     if (!trimmed) return;
-    setTasks((prev) => [
+    persistTasks((prev) => [
       ...prev,
       { id: nextIdRef.current++, text: trimmed, completed: false },
     ]);
@@ -147,7 +172,7 @@ export function TodoList() {
   };
 
   const toggleTask = (id: number) => {
-    setTasks((prev) =>
+    persistTasks((prev) =>
       prev.map((task) =>
         task.id === id ? { ...task, completed: !task.completed } : task,
       ),
@@ -155,7 +180,7 @@ export function TodoList() {
   };
 
   const deleteTask = (id: number) => {
-    setTasks((prev) => prev.filter((task) => task.id !== id));
+    persistTasks((prev) => prev.filter((task) => task.id !== id));
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -172,7 +197,7 @@ export function TodoList() {
   const handleDropToColumn = (completed: boolean) => (e: React.DragEvent) => {
     e.preventDefault();
     const id = Number(e.dataTransfer.getData("text/plain"));
-    setTasks((prev) =>
+    persistTasks((prev) =>
       prev.map((task) => (task.id === id ? { ...task, completed } : task)),
     );
   };
